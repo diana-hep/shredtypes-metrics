@@ -253,6 +253,7 @@ def pairs(data, fieldname=None):
             # For returning tuples, uncomment. List comprehension is unfortunately required, maybe I am missing soemthing?
             #schema = List(Tuple(['float','float']))
             #arr2 = [tuple(l) for l in arr1]
+            #obj = schema.fromdata(arr2)
             obj = schema.fromdata(arr1)
             return obj
         else:
