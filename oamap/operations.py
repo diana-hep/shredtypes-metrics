@@ -233,7 +233,7 @@ def flatten(data):
 
     else:
         raise TypeError("flatten can only be applied to List(List(...))")
-
+################################################################ pairs
 
 def pairs(data, fieldname=None):
     '''
