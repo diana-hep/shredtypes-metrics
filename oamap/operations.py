@@ -242,6 +242,7 @@ def pairs(data, fieldname=None):
     Usage: out_array = pairs(data, fieldname)
     Works with Lists or tuples as data input only.
     Fieldname not included yet. 
+    Uses list comprehension in tuple creation. Maybe use numba jit or numpy.ndarray.view() ?
     '''
     from oamap.schema import *
     if isinstance(data, oamap.proxy.ListProxy) or isinstance(data, oamap.proxy.TupleProxy) or isinstance(data, list) or isinstance(data, tuple) or isinstance(data, numpy.ndarray):
