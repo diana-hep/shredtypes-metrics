@@ -234,6 +234,31 @@ def flatten(data):
     else:
         raise TypeError("flatten can only be applied to List(List(...))")
 
+
+def pairs(data, fieldname=None):
+    '''
+    data = 1D numpy array, list , tuple, or a List() or Tuple(). 
+    fieldname = output numpy array. Will be returned from the function.
+    Usage: out_array = pairs(data, fieldname)
+    Works with Lists or tuples as data input only.
+    Fieldname not included yet. 
+    '''
+    from oamap.schema import *
+    if isinstance(data, oamap.proxy.ListProxy) or isinstance(data, oamap.proxy.TupleProxy) or isinstance(data, list) or isinstance(data, tuple) or isinstance(data, numpy.ndarray):
+        if fieldname is None:
+            # No fieldname given, We are free to choose out own. Let's return a nested List
+            arr = numpy.array(data)
+            arr1 = numpy.ndarray.tolist(arr[numpy.transpose(numpy.triu_indices(len(arr), 1))])
+            schema = List(List('float'))
+            # For returning tuples, uncomment. List comprehension is unfortunately required, maybe I am missing soemthing?
+            #schema = List(Tuple(['float','float']))
+            #arr2 = [tuple(l) for l in arr1]
+            obj = schema.fromdata(arr1)
+            return obj
+        else:
+            raise NotImplementedError("Will be available when records are available")
+    else:
+        raise NotImplementedError("Works with Lists or Tuple data only")
 ################################################################ filter
 
 def filter(data, fcn, args=(), numba=True, fieldname=None):
