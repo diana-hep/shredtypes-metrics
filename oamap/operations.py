@@ -472,7 +472,7 @@ def pairs(data, fieldname=None):
         if fieldname is None:
             # No fieldname given, We are free to choose out own. Let's return a nested List
             arr = numpy.array(data)
-            arr1 = numpy.ndarray.tolist(arr[numpy.transpose(numpy.triu_indices(len(arr), 1))])
+            arr1 = arr[numpy.transpose(numpy.triu_indices(len(arr), 1))]
             schema = List(List('float'))
             # For returning tuples, uncomment. List comprehension is unfortunately required, maybe I am missing soemthing?
             #schema = List(Tuple(['float','float']))
