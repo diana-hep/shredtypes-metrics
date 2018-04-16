@@ -278,6 +278,7 @@ def mask(data, at, low, high=None):
         return _setindexes(data, schema(arrays))
 
     else:
+<<<<<<< HEAD
         raise TypeError("mask can only be applied to an OAMap proxy (List, Record, Tuple)")
 
 ################################################################ flatten
@@ -312,6 +313,40 @@ def flatten(data, at=""):
     else:
         raise TypeError("flatten can only be applied to a top-level OAMap proxy (List, Record, Tuple)")
 
+=======
+        raise TypeError("flatten can only be applied to List(List(...))")
+################################################################ pairs
+>>>>>>> 9729f418ae4771723f29f8f7b7a9859d28957ab6
+
+def pairs(data, otype="LL"):
+    '''
+    data = 1D numpy array, list , tuple, or a List() or Tuple(). 
+    otype = output schema type. Possible values are LL (List of Lists), or LT (List of Tuples).
+    returns a double precision List of Lists or List of Tuples. 
+    Usage: out_array = pairs(data, otype)
+    Works with Lists or tuples as data input only.
+    Fieldname not included yet. 
+    Uses list comprehension in tuple creation. 
+    '''
+    from oamap.schema import List, Tuple
+    if isinstance(data, oamap.proxy.ListProxy) or isinstance(data, oamap.proxy.TupleProxy) or isinstance(data, list) or isinstance(data, tuple) or isinstance(data, numpy.ndarray):
+        if otype is "LL":
+            arr = numpy.array(data)
+            arr1 = arr[numpy.transpose(numpy.triu_indices(len(arr), 1))]
+            schema = List(List('double'))
+            obj = schema.fromdata(arr1)
+            return obj
+        elif otype is "LT":
+            arr = numpy.array(data)
+            arr1 = arr[numpy.transpose(numpy.triu_indices(len(arr), 1))]
+            schema = List(Tuple(['double','double']))
+            obj = schema.fromdata([tuple(l) for l in arr1])
+            return obj
+        else:
+            raise NotImplementedError("Will be available when records are available")
+            
+    else:
+        raise NotImplementedError("Works with Lists or Tuple data only")
 ################################################################ filter
 
 def filter(data, fcn, args=(), at="", numba=True):
