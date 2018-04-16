@@ -258,6 +258,37 @@ class Schema(object):
     def deepcopy(self, **replacements):
         return self.replace(lambda x: x, **replacements)
 
+    def path(self, path, parents=False):
+        out = None
+        for nodes in self._path((), path, (), set()):
+            if out is None:
+                if parents:
+                    out = nodes
+                else:
+                    out = nodes[0]
+            else:
+                raise ValueError("path {0} matches more than one field in schema".format(repr(path)))
+
+        if out is None:
+            raise ValueError("path {0} does not match any fields in the schema".format(repr(path)))
+        else:
+            return out
+
+    def paths(self, *paths, **options):
+        parents = options.pop("parents", False)
+        if len(options) > 0:
+            raise TypeError("unrecognized options: {0}".format(", ".join(options)))
+        for path in paths:
+            for nodes in self._path((), path, (), set()):
+                if parents:
+                    yield nodes
+                else:
+                    yield nodes[0]
+
+    def _path(self, loc, path, parents, memo):
+        if fnmatch.fnmatchcase("/".join(loc), path):
+            yield (self,) + parents
+
     def project(self, path):
         return self._keep((), [path], True, {})
 
@@ -266,6 +297,9 @@ class Schema(object):
 
     def drop(self, *paths):
         return self._drop((), paths, {})
+
+    def contains(self, schema):
+        return self._contains(schema, set())
 
     def _normalize_extension(self, extension):
         if isinstance(extension, ModuleType):
@@ -555,11 +589,14 @@ class Primitive(Schema):
     def replace(self, fcn, *args, **kwds):
         return fcn(Primitive(self._dtype, nullable=self._nullable, data=self._data, mask=self._mask, namespace=self._namespace, packing=self._packingcopy(), name=self._name, doc=self._doc, metadata=copy.deepcopy(self._metadata)), *args, **kwds)
 
-    def _keep(self, path, paths, project, memo):
+    def _keep(self, loc, paths, project, memo):
         return self.deepcopy()
 
-    def _drop(self, path, paths, memo):
+    def _drop(self, loc, paths, memo):
         return self.deepcopy()
+
+    def _contains(self, schema, memo):
+        return self == schema
 
     def __hash__(self):
         return hash((Primitive, self._dtype, self._nullable, self._data, self._mask, self._namespace, self._packing, self._name, self._doc, oamap.util.python2hashable(self._metadata)))
@@ -841,19 +878,33 @@ class List(Schema):
     def replace(self, fcn, *args, **kwds):
         return fcn(List(self._content.replace(fcn, *args, **kwds), nullable=self._nullable, starts=self._starts, stops=self._stops, mask=self._mask, namespace=self._namespace, packing=self._packingcopy(), name=self._name, doc=self._doc, metadata=copy.deepcopy(self._metadata)), *args, **kwds)
 
-    def _keep(self, path, paths, project, memo):
-        content = self.content._keep(path, paths, project, memo)
+    def _path(self, loc, path, parents, memo):
+        nodes = None
+        for nodes in Schema._path(self, loc, path, parents, memo):
+            yield nodes
+        if nodes is None:
+            for nodes in self._content._path(loc, path, (self,) + parents, memo):
+                yield nodes
+
+    def _keep(self, loc, paths, project, memo):
+        content = self.content._keep(loc, paths, project, memo)
         if content is None:
             return None
         else:
             return self.copy(content=content)
 
-    def _drop(self, path, paths, memo):
-        content = self.content._drop(path, paths, memo)
+    def _drop(self, loc, paths, memo):
+        content = self.content._drop(loc, paths, memo)
         if content is None:
             return None
         else:
             return self.copy(content=content)
+
+    def _contains(self, schema, memo):
+        if self == schema:
+            return True
+        else:
+            return self._content._contains(schema, memo)
 
     def __hash__(self):
         return hash((List, self._content, self._nullable, self._starts, self._stops, self._mask, self._namespace, self._packing, self._name, self._doc, oamap.util.python2hashable(self._metadata)))
@@ -1179,25 +1230,40 @@ class Union(Schema):
     def replace(self, fcn, *args, **kwds):
         return fcn(Union([x.replace(fcn, *args, **kwds) for x in self._possibilities], nullable=self._nullable, tags=self._tags, offsets=self._offsets, mask=self._mask, namespace=self._namespace, packing=self._packingcopy(), name=self._name, doc=self._doc, metadata=copy.deepcopy(self._metadata)), *args, **kwds)
 
-    def _keep(self, path, paths, project, memo):
+    def _path(self, loc, path, parents, memo):
+        nodes = None
+        for nodes in Schema._path(self, loc, path, parents, memo):
+            yield nodes
+        if nodes is None:
+            for possibility in self._possibilities:
+                for nodes in possibility._path(loc, path, (self,) + parents, memo):
+                    yield nodes
+
+    def _keep(self, loc, paths, project, memo):
         possibilities = []
         for x in self._possibilities:
-            p = self._keep(path, paths, project, memo)
+            p = self._keep(loc, paths, project, memo)
             if p is None:
                 return None
             else:
                 possibilities.append(p)
         return self.copy(possibilities)
 
-    def _drop(self, path, paths, memo):
+    def _drop(self, loc, paths, memo):
         possibilities = []
         for x in self._possibilities:
-            p = self._drop(path, paths, memo)
+            p = self._drop(loc, paths, memo)
             if p is None:
                 return None
             else:
                 possibilities.append(p)
         return self.copy(possibilities)
+
+    def _contains(self, schema, memo):
+        if self == schema:
+            return True
+        else:
+            return any(x._contains(schema, memo) for x in self._possibilities)
 
     def __hash__(self):
         return hash((Union, self._possibilities, self._nullable, self._tags, self._offsets, self._mask, self._namespace, self._packing, self._name, self._doc, oamap.util.python2hashable(self._metadata)))
@@ -1486,13 +1552,22 @@ class Record(Schema):
     def replace(self, fcn, *args, **kwds):
         return fcn(Record(OrderedDict((n, x.replace(fcn, *args, **kwds)) for n, x in self._fields.items()), nullable=self._nullable, mask=self._mask, namespace=self._namespace, packing=self._packingcopy(), name=self._name, doc=self._doc, metadata=copy.deepcopy(self._metadata)), *args, **kwds)
 
-    def _keep(self, path, paths, project, memo):
+    def _path(self, loc, path, parents, memo):
+        nodes = None
+        for nodes in Schema._path(self, loc, path, parents, memo):
+            yield nodes
+        if nodes is None:
+            for n, x in self._fields.items():
+                for nodes in x._path(loc + (n,), path, (self,) + parents, memo):
+                    yield nodes
+
+    def _keep(self, loc, paths, project, memo):
         fields = OrderedDict()
         for n, x in self._fields.items():
-            if any(fnmatch.fnmatchcase("/".join(path + (n,)), p) for p in paths):
+            if any(fnmatch.fnmatchcase("/".join(loc + (n,)), p) for p in paths):
                 fields[n] = x
-            elif any(fnmatch.fnmatchcase("/".join(path + (n,)), "/".join(p.split("/")[:len(path) + 1])) for p in paths):
-                f = x._keep(path + (n,), paths, project, memo)
+            elif any(fnmatch.fnmatchcase("/".join(loc + (n,)), "/".join(p.split("/")[:len(loc) + 1])) for p in paths):
+                f = x._keep(loc + (n,), paths, project, memo)
                 if f is not None:
                     fields[n] = f
         if len(fields) == 0:
@@ -1503,17 +1578,23 @@ class Record(Schema):
         else:
             return self.copy(fields=fields)
 
-    def _drop(self, path, paths, memo):
+    def _drop(self, loc, paths, memo):
         fields = OrderedDict()
         for n, x in self._fields.items():
-            if not any(fnmatch.fnmatchcase("/".join(path + (n,)), p) for p in paths):
-                f = x._drop(path + (n,), paths, memo)
+            if not any(fnmatch.fnmatchcase("/".join(loc + (n,)), p) for p in paths):
+                f = x._drop(loc + (n,), paths, memo)
                 if f is not None:
                     fields[n] = f
         if len(fields) == 0:
             return None
         else:
             return self.copy(fields=fields)
+
+    def _contains(self, schema, memo):
+        if self == schema:
+            return True
+        else:
+            return any(x._contains(schema, memo) for x in self._fields.values())
 
     def __hash__(self):
         return hash((Record, tuple(self._fields.items()), self._nullable, self._mask, self._namespace, self._packing, self._name, self._doc, oamap.util.python2hashable(self._metadata)))
@@ -1783,14 +1864,23 @@ class Tuple(Schema):
     def replace(self, fcn, *args, **kwds):
         return fcn(Tuple([x.replace(fcn, *args, **kwds) for x in self._types], nullable=self._nullable, mask=self._mask, namespace=self._namespace, packing=self._packingcopy(), name=self._name, doc=self._doc, metadata=copy.deepcopy(self._metadata)), *args, **kwds)
 
-    def _keep(self, path, paths, project, memo):
+    def _path(self, loc, path, parents, memo):
+        nodes = None
+        for nodes in Schema._path(self, loc, path, parents, memo):
+            yield nodes
+        if nodes is None:
+            for i, x in enumerate(self._types):
+                for nodes in x._path(loc + (str(i),), path, (self,) + parents, memo):
+                    yield nodes
+
+    def _keep(self, loc, paths, project, memo):
         types = []
         for i, x in enumerate(self._types):
             n = str(i)
-            if any(fnmatch.fnmatchcase("/".join(path + (n,)), p) for p in paths):
+            if any(fnmatch.fnmatchcase("/".join(loc + (n,)), p) for p in paths):
                 types.append(x)
-            elif any(fnmatch.fnmatchcase("/".join(path + (n,)), "/".join(p.split("/")[:len(path) + 1])) for p in paths):
-                f = x._keep(path + (n,), paths, project, memo)
+            elif any(fnmatch.fnmatchcase("/".join(loc + (n,)), "/".join(p.split("/")[:len(loc) + 1])) for p in paths):
+                f = x._keep(loc + (n,), paths, project, memo)
                 if f is not None:
                     types.append(f)
         if len(types) == 0:
@@ -1801,18 +1891,24 @@ class Tuple(Schema):
         else:
             return self.copy(types=types)
 
-    def _drop(self, path, paths, memo):
+    def _drop(self, loc, paths, memo):
         types = []
         for i, x in enumerate(self._types):
             n = str(i)
-            if not any(fnmatch.fnmatchcase("/".join(path + (n,)), p) for p in paths):
-                f = x._drop(path + (n,), paths, memo)
+            if not any(fnmatch.fnmatchcase("/".join(loc + (n,)), p) for p in paths):
+                f = x._drop(loc + (n,), paths, memo)
                 if f is not None:
                     types.append(f)
         if len(types) == 0:
             return None
         else:
             return self.copy(types=types)
+
+    def _contains(self, schema, memo):
+        if self == schema:
+            return True
+        else:
+            return any(x._contains(schema, memo) for x in self._types)
 
     def __hash__(self):
         return hash((Tuple, self._types, self._nullable, self._mask, self._namespace, self._packing, self._name, self._doc, oamap.util.python2hashable(self._metadata)))
@@ -2065,27 +2161,46 @@ class Pointer(Schema):
     def replace(self, fcn, *args, **kwds):
         return fcn(Pointer(self._target.replace(fcn, *args, **kwds), nullable=self._nullable, positions=self._positions, mask=self._mask, namespace=self._namespace, packing=self._packingcopy(), name=self._name, doc=self._doc, metadata=copy.deepcopy(self._metadata)), *args, **kwds)
 
-    def _keep(self, path, paths, project, memo):
+    def _path(self, loc, path, parents, memo):
+        nodes = None
+        for nodes in Schema._path(self, loc, path, parents, memo):
+            yield nodes
+        if nodes is None:
+            if id(self) not in memo:
+                memo.add(id(self))
+                for nodes in self._target._path(loc, path, (self,) + parents, memo):
+                    yield nodes
+        
+    def _keep(self, loc, paths, project, memo):
         if id(self) in memo:
             return memo[id(self)]
         memo[id(self)] = self.copy(target=None)
-        target = self._target._keep(path, paths, project, memo)
+        target = self._target._keep(loc, paths, project, memo)
         if target is None:
             return None
         else:
             memo[id(self)]._target = target
             return memo[id(self)]
 
-    def _drop(self, path, paths, memo):
+    def _drop(self, loc, paths, memo):
         if id(self) in memo:
             return memo[id(self)]
         memo[id(self)] = self.copy(target=None)
-        target = self._target._drop(path, paths, memo)
+        target = self._target._drop(loc, paths, memo)
         if target is None:
             return None
         else:
             memo[id(self)]._target = target
             return memo[id(self)]
+
+    def _contains(self, schema, memo):
+        if id(self) in memo:
+            return False
+        memo.add(id(self))
+        if self == schema:
+            return True
+        else:
+            return self._target._contains(schema, memo)
 
     def __hash__(self):
         return hash((Pointer, self._target, self._nullable, self._positions, self._mask, self._namespace, self._packing, self._name, self._doc, oamap.util.python2hashable(self._metadata)))

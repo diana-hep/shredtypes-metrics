@@ -735,6 +735,10 @@ else:
                        ("length", numba.types.int64)]
             super(ListProxyModel, self).__init__(dmm, fe_type, members)
 
+    numba.extending.make_attribute_wrapper(ListProxyNumbaType, "whence", "_whence")
+    numba.extending.make_attribute_wrapper(ListProxyNumbaType, "stride", "_stride")
+    numba.extending.make_attribute_wrapper(ListProxyNumbaType, "length", "_length")
+
     @numba.extending.type_callable(len)
     def listproxy_len_type(context):
         def typer(listproxy):
@@ -1263,6 +1267,8 @@ else:
                        ("index", numba.types.int64)]
             super(RecordProxyModel, self).__init__(dmm, fe_type, members)
 
+    numba.extending.make_attribute_wrapper(RecordProxyNumbaType, "index", "_index")
+
     @numba.extending.infer_getattr
     class RecordProxyAttribute(numba.typing.templates.AttributeTemplate):
         key = RecordProxyNumbaType
@@ -1378,6 +1384,8 @@ else:
                        ("lens", numba.types.voidptr),
                        ("index", numba.types.int64)]
             super(TupleProxyModel, self).__init__(dmm, fe_type, members)
+
+    numba.extending.make_attribute_wrapper(TupleProxyNumbaType, "index", "_index")
 
     @numba.extending.type_callable(len)
     def tupleproxy_len_type(context):

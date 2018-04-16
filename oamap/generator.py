@@ -195,6 +195,9 @@ class Generator(object):
     def namedschema(self):
         return self._namedschema({})
 
+    def findbynames(self, schematype, namespace, **names):
+        return self._findbynames(schematype, namespace, names, set())
+
     def case(self, obj):
         return self.schema.case(obj)
 
@@ -232,13 +235,15 @@ class Masked(object):
         else:
             return OrderedDict()
 
-    def _generate(self, arrays, index, cache):
+    def _getmask(self, arrays, cache):
         mask = cache[self.maskidx]
         if mask is None:
             self._getarrays(arrays, cache, self._toget(arrays, cache))
             mask = cache[self.maskidx]
+        return mask
 
-        value = mask[index]
+    def _generate(self, arrays, index, cache):
+        value = self._getmask(arrays, cache)[index]
         if value == self.maskedvalue:
             return None
         else:
@@ -299,13 +304,15 @@ class PrimitiveGenerator(Generator):
                 return self._toget(arrays, cache)
         return OrderedDict()
 
-    def _generate(self, arrays, index, cache):
+    def _getdata(self, arrays, cache):
         data = cache[self.dataidx]
         if data is None:
             self._getarrays(arrays, cache, self._toget(arrays, cache))
             data = cache[self.dataidx]
-        
-        return data[index]
+        return data
+
+    def _generate(self, arrays, index, cache):
+        return self._getdata(arrays, cache)[index]
 
     def _requireall(self, memo=None):
         self._required = True
@@ -344,6 +351,12 @@ class PrimitiveGenerator(Generator):
         else:
             memo[id(self)] = self.schema.copy(data=self.data)
         return memo[id(self)]
+
+    def _findbynames(self, schematype, namespace, names, memo):
+        if schematype == "Primitive" and namespace == self.namespace and names.get("data", None) == self.data and (not isinstance(self, Masked) or names.get("mask", None) == self.mask):
+            return self
+        else:
+            return None
 
 class MaskedPrimitiveGenerator(Masked, PrimitiveGenerator):
     def __init__(self, mask, maskidx, data, dataidx, dtype, namespace, packing, name, derivedname, schema):
@@ -465,6 +478,12 @@ class ListGenerator(Generator):
         memo[id(self)].content = self.content._namedschema(memo)
         return memo[id(self)]
 
+    def _findbynames(self, schematype, namespace, names, memo):
+        if schematype == "List" and namespace == self.namespace and names.get("starts", None) == self.starts and names.get("stops", None) == self.stops and (not isinstance(self, Masked) or names.get("mask", None) == self.mask):
+            return self
+        else:
+            return self.content._findbynames(schematype, namespace, names, memo)
+
 class MaskedListGenerator(Masked, ListGenerator):
     def __init__(self, mask, maskidx, starts, startsidx, stops, stopsidx, content, namespace, packing, name, derivedname, schema):
         Masked.__init__(self, mask, maskidx)
@@ -517,14 +536,17 @@ class UnionGenerator(Generator):
         else:
             return OrderedDict()
 
-    def _generate(self, arrays, index, cache):
+    def _gettagsoffsets(self, arrays, cache):
         tags = cache[self.tagsidx]
         offsets = cache[self.offsetsidx]
         if tags is None or offsets is None:
             self._getarrays(arrays, cache, self._toget(arrays, cache))
             tags = cache[self.tagsidx]
             offsets = cache[self.offsetsidx]
+        return tags, offsets
 
+    def _generate(self, arrays, index, cache):
+        tags, offsets = self._gettagsoffsets(arrays, cache)
         return self.possibilities[tags[index]]._generate(arrays, offsets[index], cache)
 
     def _requireall(self, memo=None):
@@ -589,6 +611,16 @@ class UnionGenerator(Generator):
             memo[id(self)] = self.schema.copy(tags=self.tags, offsets=self.offsets)
         memo[id(self)].possibilities = [x._namedschema(memo) for x in self.possibilities]
         return memo[id(self)]
+
+    def _findbynames(self, schematype, namespace, names, memo):
+        if schematype == "Union" and namespace == self.namespace and names.get("tags", None) == self.tags and names.get("offsets", None) == self.offsets and (not isinstance(self, Masked) or names.get("mask", None) == self.mask):
+            return self
+        else:
+            for possibility in self.possibilities:
+                out = possibility._findbynames(schematype, namespace, names, memo)
+                if out is not None:
+                    return out
+            return None
 
 class MaskedUnionGenerator(Masked, UnionGenerator):
     def __init__(self, mask, maskidx, tags, tagsidx, offsets, offsetsidx, possibilities, namespace, packing, name, derivedname, schema):
@@ -670,6 +702,16 @@ class RecordGenerator(Generator):
             memo[id(self)][n] = self.fields[n]._namedschema(memo)
         return memo[id(self)]
 
+    def _findbynames(self, schematype, namespace, names, memo):
+        if schematype == "Record" and namespace == self.namespace and (not isinstance(self, Masked) or names.get("mask", None) == self.mask):
+            return self
+        else:
+            for x in self.fields.values():
+                out = x._findbynames(schematype, namespace, names, memo)
+                if out is not None:
+                    return out
+            return None
+
 class MaskedRecordGenerator(Masked, RecordGenerator):
     def __init__(self, mask, maskidx, fields, namespace, packing, name, derivedname, schema):
         Masked.__init__(self, mask, maskidx)
@@ -749,6 +791,16 @@ class TupleGenerator(Generator):
         memo[id(self)].types = tuple(x._namedschema(memo) for x in self.types)
         return memo[id(self)]
 
+    def _findbynames(self, schematype, namespace, names, memo):
+        if schematype == "Tuple" and namespace == self.namespace and (not isinstance(self, Masked) or names.get("mask", None) == self.mask):
+            return self
+        else:
+            for x in self.types:
+                out = x._findbynames(schematype, namespace, names, memo)
+                if out is not None:
+                    return out
+            return None
+
 class MaskedTupleGenerator(Masked, TupleGenerator):
     def __init__(self, mask, maskidx, types, namespace, packing, name, derivedname, schema):
         Masked.__init__(self, mask, maskidx)
@@ -791,13 +843,15 @@ class PointerGenerator(Generator):
         else:
             return OrderedDict()
 
-    def _generate(self, arrays, index, cache):
+    def _getpositions(self, arrays, cache):
         positions = cache[self.positionsidx]
         if positions is None:
             self._getarrays(arrays, cache, self._toget(arrays, cache))
             positions = cache[self.positionsidx]
+        return positions
 
-        return self.target._generate(arrays, positions[index], cache)
+    def _generate(self, arrays, index, cache):
+        return self.target._generate(arrays, self._getpositions(arrays, cache)[index], cache)
 
     def _requireall(self, memo=None):
         if memo is None:
@@ -850,6 +904,15 @@ class PointerGenerator(Generator):
             memo[id(self)] = self.schema.copy(positions=self.positions)
         memo[id(self)].target = self.target._namedschema(memo)
         return memo[id(self)]
+
+    def _findbynames(self, schematype, namespace, names, memo):
+        if schematype == "Pointer" and namespace == self.namespace and names.get("positions", None) == self.positions and (not isinstance(self, Masked) or names.get("mask", None) == self.mask):
+            return self
+        else:
+            if id(self) in memo:
+                return None
+            memo.add(id(self))
+            return self.target._findbynames(schematype, namespace, names, memo)
 
 class MaskedPointerGenerator(Masked, PointerGenerator):
     def __init__(self, mask, maskidx, positions, positionsidx, target, namespace, packing, name, derivedname, schema):
@@ -923,8 +986,12 @@ class ExtendedGenerator(Generator):
     def _namedschema(self, memo):
         return self.generic._namedschema(memo)
 
+    def _findbynames(self, schematype, namespace, names, memo):
+        return self.generic._findbynames(schematype, namespace, names, memo)
+
     @classmethod
     def matches(cls, schema):
+        import oamap.schema
         def recurse(pattern, schema):
             if isinstance(pattern, basestring):
                 return schema["type"] == "primitive" and schema["dtype"] == pattern
