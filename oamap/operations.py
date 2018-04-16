@@ -463,9 +463,11 @@ def pairs(data, fieldname=None):
     Usage: out_array = pairs(data, fieldname)
     Works with Lists or tuples as data input only.
     Fieldname not included yet. 
+    Notes::
     Uses list comprehension in tuple creation. Maybe use numba jit or numpy.ndarray.view() ?
+    Records are probably a invalid field in this case, as a unique (key, value) pair can't be maintained.  
     '''
-    from oamap.schema import *
+    from oamap.schema import List, Tuple
     if isinstance(data, oamap.proxy.ListProxy) or isinstance(data, oamap.proxy.TupleProxy) or isinstance(data, list) or isinstance(data, tuple) or isinstance(data, numpy.ndarray):
         if fieldname is None:
             # No fieldname given, We are free to choose out own. Let's return a nested List
