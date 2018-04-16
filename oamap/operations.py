@@ -416,6 +416,7 @@ def mask(data, at, low, high=None):
         return _setindexes(data, schema(arrays))
 
     else:
+<<<<<<< HEAD
         raise TypeError("mask can only be applied to an OAMap proxy (List, Record, Tuple)")
 
 ################################################################ flatten
@@ -450,6 +451,10 @@ def flatten(data, at=""):
     else:
         raise TypeError("flatten can only be applied to a top-level OAMap proxy (List, Record, Tuple)")
 
+=======
+        raise TypeError("flatten can only be applied to List(List(...))")
+################################################################ pairs
+>>>>>>> 9729f418ae4771723f29f8f7b7a9859d28957ab6
 
 def pairs(data, fieldname=None):
     '''
@@ -458,6 +463,7 @@ def pairs(data, fieldname=None):
     Usage: out_array = pairs(data, fieldname)
     Works with Lists or tuples as data input only.
     Fieldname not included yet. 
+    Uses list comprehension in tuple creation. Maybe use numba jit or numpy.ndarray.view() ?
     '''
     from oamap.schema import *
     if isinstance(data, oamap.proxy.ListProxy) or isinstance(data, oamap.proxy.TupleProxy) or isinstance(data, list) or isinstance(data, tuple) or isinstance(data, numpy.ndarray):
